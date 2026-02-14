@@ -1,0 +1,51 @@
+from app.services.auth_service import (
+    authenticate_user,
+    create_access_token,
+    get_current_user_by_token,
+    register_user,
+)
+from app.services.debate_service import (
+    create_debate_with_agents,
+    get_debate_messages,
+    get_user_debate_or_404,
+    join_debate_for_user,
+    list_user_debates,
+    pause_debate_for_user,
+    publish_debate_event,
+    set_debate_status,
+    start_debate_for_user,
+)
+from app.services.websocket_service import (
+    ALLOWED_MESSAGE_TYPES,
+    ConnectionManager,
+    authenticate_websocket_user,
+    connected_payload,
+    error_payload,
+    pong_payload,
+    process_client_message,
+    persist_human_message,
+)
+
+__all__ = [
+    "authenticate_user",
+    "create_access_token",
+    "get_current_user_by_token",
+    "register_user",
+    "create_debate_with_agents",
+    "get_debate_messages",
+    "get_user_debate_or_404",
+    "join_debate_for_user",
+    "list_user_debates",
+    "pause_debate_for_user",
+    "publish_debate_event",
+    "set_debate_status",
+    "start_debate_for_user",
+    "ALLOWED_MESSAGE_TYPES",
+    "ConnectionManager",
+    "authenticate_websocket_user",
+    "connected_payload",
+    "error_payload",
+    "pong_payload",
+    "process_client_message",
+    "persist_human_message",
+]
