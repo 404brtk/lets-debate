@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, UUID4
 from datetime import datetime
 
 
@@ -21,7 +21,7 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     """User response model."""
 
-    id: str = Field(..., description="User UUID")
+    id: UUID4 = Field(..., description="User UUID")
     created_at: datetime = Field(..., description="Account creation timestamp")
 
     model_config = ConfigDict(from_attributes=True)

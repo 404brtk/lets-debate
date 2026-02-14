@@ -16,7 +16,7 @@ class MessageResponse(BaseModel):
     """Debate message response."""
 
     id: UUID4 = Field(..., description="Message UUID")
-    agent_id: Optional[str] = Field(
+    agent_id: Optional[UUID4] = Field(
         default=None, description="Agent UUID (None if human)"
     )
     agent_name: str = Field(..., description="Display name of agent/human")
