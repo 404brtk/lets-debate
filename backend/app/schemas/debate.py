@@ -22,7 +22,7 @@ class AgentConfig(BaseModel):
     )
     model_name: str = Field(..., description="Model name: gemini-2.5-flash, etc.")
     temperature: float = Field(
-        default=0.7, ge=0.0, le=2.0, description="LLM temperature"
+        default=0.5, ge=0.0, le=2.0, description="LLM temperature"
     )
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -76,6 +76,13 @@ class DebateResponse(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: Optional[datetime] = Field(
         default=None, description="Last update timestamp"
+    )
+    completed_at: Optional[datetime] = Field(
+        default=None, description="Completion timestamp"
+    )
+    summary: Optional[str] = Field(default=None, description="Consensus summary")
+    consensus_score: Optional[str] = Field(
+        default=None, description="Consensus score (0-100)"
     )
     agent_configs: list[AgentConfigResponse] = Field(
         default_factory=list, description="Agent configurations"
