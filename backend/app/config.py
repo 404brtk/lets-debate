@@ -14,8 +14,7 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:4173",
+        "http://localhost:3000",
     ]
 
     # llm api keys
