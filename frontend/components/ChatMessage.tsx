@@ -12,6 +12,20 @@ interface ChatMessageProps {
   isHuman?: boolean;
 }
 
+const ROLE_INITIALS: Record<string, string> = {
+  skeptic: 'S',
+  optimist: 'O',
+  expert: 'E',
+  pragmatist: 'P',
+  synthesizer: 'Y',
+};
+
+function getAvatarInitial(agentName: string, agentRole?: string, isHuman?: boolean): string {
+  if (isHuman) return agentName.charAt(0).toUpperCase();
+  if (agentRole && ROLE_INITIALS[agentRole]) return ROLE_INITIALS[agentRole];
+  return agentName.charAt(0).toUpperCase();
+}
+
 export default function ChatMessage({
   agentName,
   agentRole,
@@ -25,11 +39,13 @@ export default function ChatMessage({
     ? (ROLE_COLORS[agentRole] || 'var(--role-expert)')
     : 'var(--accent)';
 
+  const avatarInitial = getAvatarInitial(agentName, agentRole, isHuman);
+
   return (
     <div className={`chat-message ${isStreaming ? 'chat-message-streaming' : ''} ${isHuman ? 'chat-message-human' : ''}`}>
       <div className="chat-message-header">
         <div className="chat-message-avatar" style={{ backgroundColor: roleColor }}>
-          {agentName.charAt(0).toUpperCase()}
+          {avatarInitial}
         </div>
         <div className="chat-message-meta">
           <span className="chat-message-name">{agentName}</span>

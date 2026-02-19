@@ -31,8 +31,8 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const MODEL_OPTIONS: { provider: ModelProvider; models: string[] }[] = [
-  { provider: 'openai', models: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o', 'o4-mini', 'o3-mini'] },
-  { provider: 'gemini', models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-3-flash'] },
+  { provider: 'openai', models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5.2'] },
+  { provider: 'gemini', models: ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash-preview'] },
 ];
 
 export default function AgentCard({

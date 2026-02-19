@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/store/auth';
@@ -16,7 +16,8 @@ const STATUS_STYLES: Record<DebateStatus, { label: string; className: string }> 
 export default function DebatesPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const { debates, isLoading, fetchDebates } = useDebate();
+  const { debates, isLoading, fetchDebates, deleteDebate } = useDebate();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -29,6 +30,24 @@ export default function DebatesPage() {
       fetchDebates();
     }
   }, [isAuthenticated, fetchDebates]);
+
+  const handleDelete = async (e: React.MouseEvent, debateId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!confirm('Are you sure you want to delete this debate? This cannot be undone.')) {
+      return;
+    }
+
+    setDeletingId(debateId);
+    try {
+      await deleteDebate(debateId);
+    } catch {
+      alert('Failed to delete debate.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (authLoading || isLoading) {
     return (
@@ -86,9 +105,19 @@ export default function DebatesPage() {
                       </span>
                     ))}
                   </div>
-                  <span className="debate-card-date">
-                    {new Date(debate.created_at).toLocaleDateString()}
-                  </span>
+                  <div className="debate-card-actions">
+                    <span className="debate-card-date">
+                      {new Date(debate.created_at).toLocaleDateString()}
+                    </span>
+                    <button
+                      onClick={(e) => handleDelete(e, debate.id)}
+                      disabled={deletingId === debate.id}
+                      className="btn btn-ghost btn-sm debate-delete-btn"
+                      title="Delete debate"
+                    >
+                      {deletingId === debate.id ? '...' : '🗑️'}
+                    </button>
+                  </div>
                 </div>
               </Link>
             );

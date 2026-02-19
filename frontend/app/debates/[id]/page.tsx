@@ -19,11 +19,14 @@ export default function DebateViewPage() {
     streamingMessage,
     isDebateRunning,
     isLoading,
+    consensusSummary,
+    isGeneratingConsensus,
     fetchDebate,
     fetchMessages,
     connectWebSocket,
     disconnectWebSocket,
     startDebate,
+    pauseDebate,
     sendHumanMessage,
   } = useDebate();
 
@@ -51,7 +54,7 @@ export default function DebateViewPage() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingMessage]);
+  }, [messages, streamingMessage, consensusSummary]);
 
   const handleSendHuman = (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,6 +78,8 @@ export default function DebateViewPage() {
     completed: '✅ Completed',
   }[currentDebate.status];
 
+  const showConsensus = isGeneratingConsensus || !!consensusSummary;
+
   return (
     <div className="debate-view">
       {/* Debate Header */}
@@ -84,28 +89,30 @@ export default function DebateViewPage() {
             ← Back
           </button>
           <span className="debate-status-label">{statusLabel}</span>
-          <span className="debate-turn-counter">
-            Turn {currentDebate.current_turn}/{currentDebate.max_turns}
-          </span>
         </div>
         <h1 className="debate-view-topic">{currentDebate.topic}</h1>
         {currentDebate.description && (
           <p className="debate-view-desc">{currentDebate.description}</p>
         )}
-        <div className="debate-view-agents">
-          {currentDebate.agent_configs.map((agent) => (
-            <span
-              key={agent.id || agent.name}
-              className="agent-chip"
-              style={{ borderColor: ROLE_COLORS[agent.role] || 'var(--border)' }}
-            >
+        <div className="debate-view-meta">
+          <span className="debate-turn-counter">
+            Turn {currentDebate.current_turn} / {currentDebate.max_turns}
+          </span>
+          <div className="debate-view-agents">
+            {currentDebate.agent_configs.map((agent) => (
               <span
-                className="agent-chip-dot"
-                style={{ backgroundColor: ROLE_COLORS[agent.role] || 'var(--text-muted)' }}
-              />
-              {agent.name}
-            </span>
-          ))}
+                key={agent.id || agent.name}
+                className="agent-chip"
+                style={{ borderColor: ROLE_COLORS[agent.role] || 'var(--border)' }}
+              >
+                <span
+                  className="agent-chip-dot"
+                  style={{ backgroundColor: ROLE_COLORS[agent.role] || 'var(--text-muted)' }}
+                />
+                {agent.name}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -147,37 +154,64 @@ export default function DebateViewPage() {
           </div>
         )}
 
+        {/* Consensus display */}
+        {showConsensus && (
+          <div className="consensus-section">
+            <div className="consensus-header">
+              <h3>Conclusion</h3>
+            </div>
+            <div className="consensus-content">
+              {consensusSummary || ''}
+              {isGeneratingConsensus && <span className="streaming-cursor">▊</span>}
+            </div>
+            {isGeneratingConsensus && (
+              <div className="consensus-generating">
+                Drawing conclusion...
+              </div>
+            )}
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Controls */}
       <div className="debate-controls">
-        {(currentDebate.status === 'pending' || currentDebate.status === 'paused') && (
+        {(currentDebate.status === 'pending' || currentDebate.status === 'paused') && !isDebateRunning && (
+          <>
+            <button
+              onClick={startDebate}
+              className="btn btn-primary btn-lg debate-start-btn"
+            >
+              ⚡ {currentDebate.status === 'paused' ? 'Resume' : 'Start'} Debate
+            </button>
+            {currentDebate.status === 'paused' && (
+              <form onSubmit={handleSendHuman} className="debate-human-input">
+                <input
+                  type="text"
+                  value={humanInput}
+                  onChange={(e) => setHumanInput(e.target.value)}
+                  className="form-input"
+                  placeholder="Add a message before resuming..."
+                />
+                <button type="submit" className="btn btn-primary" disabled={!humanInput.trim()}>
+                  Send
+                </button>
+              </form>
+            )}
+          </>
+        )}
+
+        {isDebateRunning && (
           <button
-            onClick={startDebate}
-            disabled={isDebateRunning}
-            className="btn btn-primary btn-lg debate-start-btn"
+            onClick={pauseDebate}
+            className="btn btn-warning btn-lg debate-start-btn"
           >
-            ⚡ {currentDebate.status === 'paused' ? 'Resume' : 'Start'} Debate
+            ⏸️ Pause Debate
           </button>
         )}
 
-        {currentDebate.status === 'active' && !isDebateRunning && (
-          <form onSubmit={handleSendHuman} className="debate-human-input">
-            <input
-              type="text"
-              value={humanInput}
-              onChange={(e) => setHumanInput(e.target.value)}
-              className="form-input"
-              placeholder="Join the debate... (optional)"
-            />
-            <button type="submit" className="btn btn-primary" disabled={!humanInput.trim()}>
-              Send
-            </button>
-          </form>
-        )}
-
-        {currentDebate.status === 'completed' && (
+        {currentDebate.status === 'completed' && !showConsensus && (
           <div className="debate-completed-banner">
             ✅ Debate completed after {currentDebate.current_turn} turns
           </div>

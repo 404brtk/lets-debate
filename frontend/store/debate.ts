@@ -28,6 +28,8 @@ export interface Debate {
   current_turn: number;
   created_at: string;
   updated_at: string | null;
+  completed_at: string | null;
+  summary: string | null;
   agent_configs: AgentConfig[];
 }
 
@@ -58,6 +60,8 @@ interface DebateState {
   wsConnection: WebSocket | null;
   isLoading: boolean;
   isDebateRunning: boolean;
+  consensusSummary: string;
+  isGeneratingConsensus: boolean;
 
   // Actions
   fetchDebates: () => Promise<void>;
@@ -72,7 +76,9 @@ interface DebateState {
   connectWebSocket: (debateId: string) => void;
   disconnectWebSocket: () => void;
   startDebate: () => void;
+  pauseDebate: () => void;
   sendHumanMessage: (content: string, messageType?: string) => void;
+  deleteDebate: (id: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -84,6 +90,8 @@ export const useDebate = create<DebateState>((set, get) => ({
   wsConnection: null,
   isLoading: false,
   isDebateRunning: false,
+  consensusSummary: '',
+  isGeneratingConsensus: false,
 
   fetchDebates: async () => {
     set({ isLoading: true });
@@ -116,7 +124,11 @@ export const useDebate = create<DebateState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await api.get(`/debates/${id}`);
-      set({ currentDebate: response.data });
+      const debate = response.data;
+      set({
+        currentDebate: debate,
+        consensusSummary: debate.summary || '',
+      });
     } catch (error) {
       console.error('Failed to fetch debate:', error);
     } finally {
@@ -153,6 +165,15 @@ export const useDebate = create<DebateState>((set, get) => ({
       switch (data.type) {
         case 'connected':
           console.log('Debate WebSocket connected:', data.message);
+          break;
+
+        case 'debate_started':
+          set((state) => ({
+            isDebateRunning: true,
+            currentDebate: state.currentDebate
+              ? { ...state.currentDebate, status: 'active' }
+              : null,
+          }));
           break;
 
         case 'agent_thinking':
@@ -217,6 +238,19 @@ export const useDebate = create<DebateState>((set, get) => ({
           }));
           break;
 
+        case 'human_injected':
+          // Human message was injected into the debate loop between turns
+          break;
+
+        case 'debate_paused':
+          set((state) => ({
+            isDebateRunning: false,
+            currentDebate: state.currentDebate
+              ? { ...state.currentDebate, status: 'paused' }
+              : null,
+          }));
+          break;
+
         case 'debate_completed':
           set((state) => ({
             isDebateRunning: false,
@@ -226,12 +260,36 @@ export const useDebate = create<DebateState>((set, get) => ({
           }));
           break;
 
+        case 'consensus_started':
+          set({ isGeneratingConsensus: true, consensusSummary: '' });
+          break;
+
+        case 'consensus_token':
+          set((state) => ({
+            consensusSummary: state.consensusSummary + data.token,
+          }));
+          break;
+
+        case 'consensus_generated':
+          set((state) => ({
+            isGeneratingConsensus: false,
+            consensusSummary: data.summary,
+            currentDebate: state.currentDebate
+              ? {
+                  ...state.currentDebate,
+                  summary: data.summary,
+                }
+              : null,
+          }));
+          break;
+
         case 'error':
           console.error('Debate error:', data.error);
-          set({ isDebateRunning: false });
+          set({ isDebateRunning: false, isGeneratingConsensus: false });
           break;
 
         case 'pong':
+        case 'pause_acknowledged':
           break;
 
         default:
@@ -241,8 +299,6 @@ export const useDebate = create<DebateState>((set, get) => ({
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
-      // Only clear state if this is still the active connection
-      // (prevents stale WS1.onclose from wiping WS2 in Strict Mode)
       if (get().wsConnection === ws) {
         set({ wsConnection: null, isDebateRunning: false });
       }
@@ -265,13 +321,18 @@ export const useDebate = create<DebateState>((set, get) => ({
 
   startDebate: () => {
     const { wsConnection } = get();
-    console.log('startDebate called, wsConnection:', !!wsConnection, 'readyState:', wsConnection?.readyState, '(OPEN=1)');
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      console.log('Sending start_debate message...');
       wsConnection.send(JSON.stringify({ type: 'start_debate' }));
       set({ isDebateRunning: true });
     } else {
       console.warn('Cannot send start_debate: WebSocket not connected');
+    }
+  },
+
+  pauseDebate: () => {
+    const { wsConnection } = get();
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({ type: 'pause_debate' }));
     }
   },
 
@@ -288,6 +349,18 @@ export const useDebate = create<DebateState>((set, get) => ({
     }
   },
 
+  deleteDebate: async (id) => {
+    try {
+      await api.delete(`/debates/${id}`);
+      set((state) => ({
+        debates: state.debates.filter((d) => d.id !== id),
+      }));
+    } catch (error) {
+      console.error('Failed to delete debate:', error);
+      throw error;
+    }
+  },
+
   reset: () => {
     const { wsConnection } = get();
     if (wsConnection) wsConnection.close();
@@ -297,6 +370,8 @@ export const useDebate = create<DebateState>((set, get) => ({
       streamingMessage: null,
       wsConnection: null,
       isDebateRunning: false,
+      consensusSummary: '',
+      isGeneratingConsensus: false,
     });
   },
 }));

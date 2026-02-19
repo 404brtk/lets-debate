@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/store/auth';
 import { useDebate, type AgentRole, type ModelProvider } from '@/store/debate';
-import AgentCard from '@/components/AgentCard';
+import AgentCard, { ROLE_OPTIONS } from '@/components/AgentCard';
 
 interface AgentForm {
   name: string;
@@ -14,10 +14,27 @@ interface AgentForm {
   temperature: number;
 }
 
+function roleLabel(role: AgentRole): string {
+  return ROLE_OPTIONS.find((r) => r.value === role)?.label || role;
+}
+
+function generateAgentName(role: AgentRole, agents: AgentForm[], selfIndex: number): string {
+  // Count how many agents with the same role exist before this index
+  let count = 0;
+  for (let i = 0; i < agents.length; i++) {
+    if (i === selfIndex) continue;
+    if (agents[i].role === role) count++;
+  }
+  const num = String(count + 1).padStart(2, '0');
+  return `The ${roleLabel(role)} ${num}`;
+}
+
+const AVAILABLE_ROLES: AgentRole[] = ['skeptic', 'optimist', 'expert', 'pragmatist', 'synthesizer'];
+
 const DEFAULT_AGENTS: AgentForm[] = [
-  { name: 'The Skeptic', role: 'skeptic', model_provider: 'gemini', model_name: 'gemini-2.5-flash', temperature: 0.7 },
-  { name: 'The Optimist', role: 'optimist', model_provider: 'gemini', model_name: 'gemini-2.5-flash', temperature: 0.8 },
-  { name: 'The Expert', role: 'expert', model_provider: 'gemini', model_name: 'gemini-2.5-flash', temperature: 0.5 },
+  { name: 'The Skeptic 01', role: 'skeptic', model_provider: 'gemini', model_name: 'gemini-2.5-flash-lite', temperature: 0.5 },
+  { name: 'The Optimist 01', role: 'optimist', model_provider: 'gemini', model_name: 'gemini-2.5-flash-lite', temperature: 0.5 },
+  { name: 'The Expert 01', role: 'expert', model_provider: 'gemini', model_name: 'gemini-2.5-flash-lite', temperature: 0.5 },
 ];
 
 export default function NewDebatePage() {
@@ -41,22 +58,34 @@ export default function NewDebatePage() {
     setAgents((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
+
+      // Auto-update name when role changes
+      if (field === 'role') {
+        updated[index].name = generateAgentName(value as AgentRole, updated, index);
+      }
+
       return updated;
     });
   };
 
   const addAgent = () => {
     if (agents.length >= 5) return;
-    setAgents((prev) => [
-      ...prev,
-      {
-        name: `Agent ${prev.length + 1}`,
-        role: 'pragmatist' as AgentRole,
+    // Pick a role that isn't used yet, or fall back to pragmatist
+    const usedRoles = new Set(agents.map((a) => a.role));
+    const nextRole = AVAILABLE_ROLES.find((r) => !usedRoles.has(r)) || 'pragmatist';
+
+    setAgents((prev) => {
+      const newAgent: AgentForm = {
+        name: '', // will be set below
+        role: nextRole,
         model_provider: prev[0].model_provider,
         model_name: prev[0].model_name,
-        temperature: 0.7,
-      },
-    ]);
+        temperature: 0.5,
+      };
+      const updated = [...prev, newAgent];
+      updated[updated.length - 1].name = generateAgentName(nextRole, updated, updated.length - 1);
+      return updated;
+    });
   };
 
   const removeAgent = (index: number) => {
