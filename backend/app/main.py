@@ -88,8 +88,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Debate System",
-    description="Multi-agent AI debate platform with LangGraph",
+    title="Lets-Debate",
+    description="Multi-agent AI debate platform",
     version="0.1.0",
     lifespan=lifespan,
 )
