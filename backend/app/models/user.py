@@ -9,6 +9,7 @@ from app.db.session import Base
 
 if TYPE_CHECKING:
     from app.models.debate import Debate
+    from app.models.refresh_token import RefreshToken
 
 
 class User(Base):
@@ -40,6 +41,12 @@ class User(Base):
     # Relationships
     debates: Mapped[list["Debate"]] = relationship(
         "Debate",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        "RefreshToken",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="select",

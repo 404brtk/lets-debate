@@ -1,5 +1,12 @@
 # Auth schemas
-from app.schemas.auth import UserCreate, UserResponse, Token, TokenData
+from app.schemas.auth import (
+    RefreshTokenRequest,
+    Token,
+    TokenData,
+    TokenPair,
+    UserCreate,
+    UserResponse,
+)
 
 # Debate schemas
 from app.schemas.debate import AgentConfig, DebateCreate, DebateResponse
@@ -23,6 +30,8 @@ __all__ = [
     "UserCreate",
     "UserResponse",
     "Token",
+    "TokenPair",
+    "RefreshTokenRequest",
     "TokenData",
     # Debate
     "AgentConfig",

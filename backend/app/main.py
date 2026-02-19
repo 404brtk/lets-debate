@@ -1,24 +1,50 @@
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 from sqlalchemy import text
+from starlette.concurrency import run_in_threadpool
 
 from app.routers import auth, debates, websocket
 from app.config import get_settings
+from app.db.session import SessionLocal
 from app.dependencies import (
     RedisDep,
     SessionDep,
     close_redis_client,
     create_redis_client,
 )
+from app.services.auth_service import cleanup_expired_refresh_tokens
 
 settings = get_settings()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def run_refresh_token_cleanup_once() -> int:
+    """Run one cleanup pass in a sync context (for threadpool execution)."""
+    db = SessionLocal()
+    try:
+        return cleanup_expired_refresh_tokens(db)
+    finally:
+        db.close()
+
+
+async def refresh_token_cleanup_worker() -> None:
+    """Periodically remove expired refresh tokens using bulk delete query."""
+    while True:
+        try:
+            deleted_count = await run_in_threadpool(run_refresh_token_cleanup_once)
+            if deleted_count > 0:
+                logger.info(f"Deleted {deleted_count} expired refresh tokens")
+        except Exception as exc:
+            logger.error(f"Refresh token cleanup failed: {exc}")
+
+        await asyncio.sleep(settings.REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -38,9 +64,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize Redis client: {e}")
         raise
 
+    app.state.refresh_cleanup_task = asyncio.create_task(refresh_token_cleanup_worker())
+
     yield
 
     # Shutdown
+    cleanup_task = getattr(app.state, "refresh_cleanup_task", None)
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            logger.info("Refresh token cleanup task cancelled")
+
     redis_client = getattr(app.state, "redis", None)
     if redis_client is not None:
         try:

@@ -1,6 +1,5 @@
-from typing import Optional
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, UUID4
 from datetime import datetime
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, UUID4
 
 
 class UserBase(BaseModel):
@@ -34,7 +33,25 @@ class Token(BaseModel):
     token_type: str = Field(default="bearer", description="Token type")
 
 
+class TokenPair(Token):
+    """Access and refresh token response."""
+
+    refresh_token: str = Field(..., description="JWT refresh token")
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token exchange request."""
+
+    refresh_token: str = Field(..., description="JWT refresh token")
+
+
 class TokenData(BaseModel):
     """Token payload data."""
 
-    user_id: Optional[str] = Field(default=None, description="User ID from token")
+    user_id: UUID4 = Field(
+        ...,
+        validation_alias=AliasChoices("sub", "user_id"),
+        description="User UUID from token subject claim",
+    )
+
+    model_config = ConfigDict(validate_by_alias=True, validate_by_name=True)

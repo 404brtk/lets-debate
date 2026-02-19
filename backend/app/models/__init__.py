@@ -3,5 +3,6 @@ from app.models.user import User
 from app.models.debate import Debate
 from app.models.message import Message
 from app.models.agent_config import AgentConfig
+from app.models.refresh_token import RefreshToken
 
-__all__ = ["Base", "User", "Debate", "Message", "AgentConfig"]
+__all__ = ["Base", "User", "Debate", "Message", "AgentConfig", "RefreshToken"]
