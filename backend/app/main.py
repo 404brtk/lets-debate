@@ -105,7 +105,7 @@ app.add_middleware(
 # Include API routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(debates.router, prefix="/api/v1/debates", tags=["debates"])
-app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+app.include_router(websocket.router, prefix="/api/v1/ws", tags=["websocket"])
 
 
 @app.get("/health", tags=["health"])
