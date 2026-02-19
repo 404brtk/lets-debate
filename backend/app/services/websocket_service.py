@@ -3,14 +3,15 @@ from datetime import datetime, timezone
 from typing import Literal
 from typing import Optional
 
-from fastapi import HTTPException, WebSocket, WebSocketException, status
+from fastapi import HTTPException, WebSocket
 from pydantic import UUID4
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 
 from app.models import Debate, Message, User
-from app.services.auth_service import get_current_user_by_token
-from app.services.debate_service import get_user_debate_or_404
+from app.services.auth_service import get_current_user_by_token, get_decrypted_api_keys
+from app.services.llm_service import AgentSpec, DebateGraphState, run_full_debate
 
 ALLOWED_MESSAGE_TYPES = {
     "argument",
@@ -63,18 +64,29 @@ class ConnectionManager:
 def authenticate_websocket_user(
     db: Session, debate_id: UUID4, token: Optional[str]
 ) -> tuple[User, Debate]:
+    """Authenticate a WebSocket user and return the user + debate.
+
+    Raises ValueError instead of WebSocketException so the caller
+    (which has already accepted the connection) can send a JSON error
+    message back before closing.
+    """
     if token is None:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+        raise ValueError("Missing authentication token")
 
     try:
         user = get_current_user_by_token(token, db)
     except HTTPException as exc:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION) from exc
+        raise ValueError("Invalid or expired authentication token") from exc
 
-    try:
-        debate = get_user_debate_or_404(db=db, debate_id=debate_id, user_id=user.id)
-    except HTTPException as exc:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION) from exc
+    # Eager-load agent_configs so they're available without lazy loading
+    stmt = (
+        select(Debate)
+        .options(joinedload(Debate.agent_configs))
+        .where(Debate.id == debate_id, Debate.user_id == user.id)
+    )
+    debate = db.scalar(stmt)
+    if debate is None:
+        raise ValueError("Debate not found or access denied")
 
     return user, debate
 
@@ -143,6 +155,184 @@ def persist_human_message(
     db.commit()
     db.refresh(message_row)
     return message_row
+
+
+def _build_agent_specs(debate: Debate) -> list[AgentSpec]:
+    """Convert DB AgentConfig models to AgentSpec data classes for the LLM service."""
+    agents = sorted(debate.agent_configs, key=lambda a: a.order_index)
+    return [
+        AgentSpec(
+            id=str(a.id),
+            name=a.name,
+            role=a.role,
+            model_provider=a.model_provider,
+            model_name=a.model_name,
+            temperature=a.temperature,
+            system_prompt=a.system_prompt,
+            order_index=a.order_index,
+        )
+        for a in agents
+        if a.is_active
+    ]
+
+
+def _load_existing_messages(db: Session, debate_id) -> list[dict]:
+    """Load existing debate messages for LLM context."""
+    stmt = (
+        select(Message)
+        .where(Message.debate_id == debate_id)
+        .order_by(Message.turn_number.asc(), Message.created_at.asc())
+    )
+    return [
+        {
+            "agent_id": str(m.agent_id) if m.agent_id else None,
+            "agent_name": m.agent_name,
+            "content": m.content,
+            "turn_number": m.turn_number,
+        }
+        for m in db.scalars(stmt).unique().all()
+    ]
+
+
+async def run_debate_via_websocket(
+    manager: ConnectionManager,
+    db: Session,
+    debate: Debate,
+    user: User,
+    debate_key: str,
+) -> None:
+    """Run the full automated debate, streaming events over WebSocket."""
+    api_keys = get_decrypted_api_keys(user)
+    agents = _build_agent_specs(debate)
+
+    if not agents:
+        await manager.broadcast(
+            debate_key, error_payload("No active agents configured for this debate")
+        )
+        return
+
+    # Validate that the user has API keys for all required providers
+    required_providers = {a.model_provider for a in agents}
+    key_map = {"openai": api_keys.get("openai"), "gemini": api_keys.get("google")}
+    missing = [p for p in required_providers if not key_map.get(p)]
+    if missing:
+        await manager.broadcast(
+            debate_key,
+            error_payload(
+                f"Missing API key(s) for provider(s): {', '.join(missing)}. "
+                "Please add your API key in profile settings."
+            ),
+        )
+        return
+
+    existing_messages = _load_existing_messages(db, debate.id)
+
+    state = DebateGraphState(
+        topic=debate.topic,
+        description=debate.description or "",
+        agents=agents,
+        api_keys=api_keys,
+        messages=existing_messages,
+        turn_count=debate.current_turn,
+        max_turns=debate.max_turns,
+    )
+
+    try:
+        async for event in run_full_debate(state):
+            event_type = event["type"]
+
+            if event_type == "agent_thinking":
+                agent: AgentSpec = event["agent"]
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "agent_thinking",
+                        "debate_id": debate_key,
+                        "agent_id": agent.id,
+                        "agent_name": agent.name,
+                        "agent_role": agent.role,
+                        "timestamp": utc_timestamp(),
+                    },
+                )
+
+            elif event_type == "agent_token":
+                agent = event["agent"]
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "agent_token",
+                        "debate_id": debate_key,
+                        "agent_id": agent.id,
+                        "agent_name": agent.name,
+                        "token": event["token"],
+                    },
+                )
+
+            elif event_type == "agent_spoke":
+                agent = event["agent"]
+                turn = event["turn"]
+                content = event["content"]
+
+                # Persist the message to DB
+                message_row = Message(
+                    debate_id=debate.id,
+                    agent_id=None,  # We'll look up the AgentConfig id
+                    agent_name=agent.name,
+                    content=content,
+                    message_type="argument",
+                    turn_number=turn,
+                    model_used=agent.model_name,
+                )
+                # Set the agent_id from the config
+                try:
+                    import uuid as _uuid
+
+                    message_row.agent_id = _uuid.UUID(agent.id)
+                except (ValueError, AttributeError):
+                    pass
+
+                db.add(message_row)
+                debate.current_turn = turn
+                db.commit()
+                db.refresh(message_row)
+
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "agent_spoke",
+                        "debate_id": debate_key,
+                        "message_id": str(message_row.id),
+                        "agent_id": agent.id,
+                        "agent_name": agent.name,
+                        "agent_role": agent.role,
+                        "content": content,
+                        "message_type": "argument",
+                        "turn_number": turn,
+                        "timestamp": message_row.created_at.isoformat(),
+                    },
+                )
+
+            elif event_type == "debate_completed":
+                debate.status = "completed"
+                debate.completed_at = datetime.now(timezone.utc)
+                db.commit()
+
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "debate_completed",
+                        "debate_id": debate_key,
+                        "total_turns": event["total_turns"],
+                        "timestamp": utc_timestamp(),
+                    },
+                )
+
+    except Exception as exc:
+        await manager.broadcast(
+            debate_key,
+            error_payload(f"Debate error: {str(exc)}"),
+        )
+        raise
 
 
 def process_client_message(

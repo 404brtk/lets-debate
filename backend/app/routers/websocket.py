@@ -1,4 +1,6 @@
+import logging
 from typing import Optional
+
 from fastapi import (
     APIRouter,
     Query,
@@ -8,12 +10,18 @@ from fastapi import (
 from pydantic import UUID4
 
 from app.dependencies import SessionDep
+from app.services.debate_service import set_debate_status
 from app.services.websocket_service import (
     ConnectionManager,
     authenticate_websocket_user,
     connected_payload,
+    error_payload,
+    parse_json_message,
     process_client_message,
+    run_debate_via_websocket,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -32,19 +40,42 @@ async def debate_websocket(
     """
     WebSocket endpoint for real-time debate updates.
 
-    Events:
+    Client messages:
+    - {"type": "start_debate"}: Start the automated AI debate
+    - {"type": "human_message", "content": "...", "message_type": "argument"}: Human participation
+    - {"type": "ping"}: Keep-alive ping
+
+    Server events:
     - agent_thinking: Agent is generating response
-    - agent_spoke: Agent posted a message
-    - human_joined: Human participant joined
-    - debate_started: Debate began
-    - debate_paused: Debate paused
+    - agent_token: Streaming token from current agent
+    - agent_spoke: Agent finished their turn
+    - human_spoke: Human posted a message
     - debate_completed: Debate finished
     - error: Error occurred
+    - connected: Connection confirmed
+    - pong: Ping response
     """
-    user, debate = authenticate_websocket_user(db=db, debate_id=debate_id, token=token)
+    # Accept the connection FIRST, then authenticate.
+    # This avoids the 403 HTTP rejection that FastAPI sends when a
+    # WebSocketException is raised before accept().
+    await websocket.accept()
+
+    try:
+        user, debate = authenticate_websocket_user(
+            db=db, debate_id=debate_id, token=token
+        )
+    except Exception as exc:
+        logger.warning("WebSocket auth failed for debate %s: %s", debate_id, exc)
+        await websocket.send_json(error_payload(f"Authentication failed: {str(exc)}"))
+        await websocket.close(code=1008, reason="Authentication failed")
+        return
 
     debate_key = str(debate_id)
-    await manager.connect(websocket, debate_key)
+
+    # Register this connection with the manager (already accepted above)
+    if debate_key not in manager.active_connections:
+        manager.active_connections[debate_key] = []
+    manager.active_connections[debate_key].append(websocket)
 
     try:
         # Send connection confirmation
@@ -53,20 +84,77 @@ async def debate_websocket(
         # Listen for client messages
         while True:
             data = await websocket.receive_text()
-            dispatch, payload = process_client_message(
-                db=db,
-                debate=debate,
-                user=user,
-                debate_key=debate_key,
-                raw_data=data,
+            logger.info("WS received message: %s", data[:200])
+
+            try:
+                message = parse_json_message(data)
+            except Exception:
+                await manager.send_personal_message(
+                    error_payload("Invalid JSON payload"), websocket
+                )
+                continue
+
+            msg_type = message.get("type")
+            logger.info(
+                "WS message type: %s, debate status: %s", msg_type, debate.status
             )
 
-            if dispatch == "broadcast":
-                await manager.broadcast(debate_key, payload)
+            if msg_type == "start_debate":
+                # Transition debate to active status
+                if debate.status == "pending" or debate.status == "paused":
+                    from_status = debate.status
+                    try:
+                        set_debate_status(
+                            db=db,
+                            debate_id=debate_id,
+                            user=user,
+                            from_status=from_status,
+                            to_status="active",
+                            invalid_transition_message=f"Cannot start debate from {from_status} status",
+                        )
+                        # Refresh the debate object
+                        db.refresh(debate)
+                        logger.info("Debate status changed to: %s", debate.status)
+                    except Exception as exc:
+                        logger.error("Failed to start debate: %s", exc)
+                        await manager.send_personal_message(
+                            error_payload(str(exc)), websocket
+                        )
+                        continue
+
+                if debate.status != "active":
+                    await manager.send_personal_message(
+                        error_payload(
+                            f"Debate is in '{debate.status}' status, cannot start"
+                        ),
+                        websocket,
+                    )
+                    continue
+
+                logger.info("Starting debate run via websocket...")
+                # Run the full debate with streaming
+                await run_debate_via_websocket(
+                    manager=manager,
+                    db=db,
+                    debate=debate,
+                    user=user,
+                    debate_key=debate_key,
+                )
+
             else:
-                await manager.send_personal_message(payload, websocket)
+                # Handle other message types (human_message, ping)
+                dispatch, payload = process_client_message(
+                    db=db,
+                    debate=debate,
+                    user=user,
+                    debate_key=debate_key,
+                    raw_data=data,
+                )
+
+                if dispatch == "broadcast":
+                    await manager.broadcast(debate_key, payload)
+                else:
+                    await manager.send_personal_message(payload, websocket)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, debate_key)
-        # Optionally notify others that someone left
-        # await manager.broadcast(debate_key, {"type": "viewer_left", ...})
