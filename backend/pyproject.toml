@@ -16,4 +16,9 @@ dependencies = [
     "uvicorn[standard]>=0.41.0",
     "python-multipart>=0.0.22",
     "psycopg[binary]>=3.3.3",
+    "langchain-openai>=1.1.10",
+    "langchain-google-genai>=4.2.0",
+    "langgraph>=1.0.9",
+    "cryptography>=46.0.5",
+    "langchain>=1.2.10",
 ]
