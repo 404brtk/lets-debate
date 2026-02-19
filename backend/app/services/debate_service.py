@@ -78,7 +78,7 @@ def list_user_debates(db: Session, user: User, skip: int, limit: int) -> list[De
         .offset(skip)
         .limit(limit)
     )
-    return list(db.scalars(stmt).all())
+    return list(db.scalars(stmt).unique().all())
 
 
 def set_debate_status(
@@ -113,7 +113,7 @@ def get_debate_messages(
         .offset(skip)
         .limit(limit)
     )
-    return list(db.scalars(stmt).all())
+    return list(db.scalars(stmt).unique().all())
 
 
 def publish_debate_event(
