@@ -1,7 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordRequestFormStrict
-from app.dependencies import SessionDep
+from app.dependencies import CurrentUser, SessionDep
 from app.services.auth_service import (
     authenticate_user,
     create_token_pair,
@@ -42,3 +42,9 @@ def refresh_tokens(payload: RefreshTokenRequest, db: SessionDep):
         refresh_token=payload.refresh_token,
     )
     return TokenPair(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.get("/me", response_model=UserResponse)
+def get_my_profile(current_user: CurrentUser):
+    """Get profile of currently authenticated user."""
+    return current_user
