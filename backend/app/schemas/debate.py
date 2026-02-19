@@ -20,12 +20,27 @@ class AgentConfig(BaseModel):
     model_provider: ModelProvider = Field(
         ..., description="LLM provider: openai or gemini"
     )
-    model_name: str = Field(..., description="Model name: gpt-5, gemini-3-pro, etc.")
+    model_name: str = Field(..., description="Model name: gemini-2.5-flash, etc.")
     temperature: float = Field(
         default=0.7, ge=0.0, le=2.0, description="LLM temperature"
     )
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class AgentConfigResponse(BaseModel):
+    """Agent config in debate responses."""
+
+    id: UUID4 = Field(..., description="Agent config UUID")
+    name: str = Field(..., description="Agent display name")
+    role: AgentRole = Field(..., description="Agent role")
+    model_provider: ModelProvider = Field(..., description="LLM provider")
+    model_name: str = Field(..., description="Model name")
+    temperature: float = Field(..., description="LLM temperature")
+    order_index: int = Field(..., description="Turn order index")
+    is_active: bool = Field(..., description="Whether agent is active")
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class DebateCreate(BaseModel):
@@ -41,7 +56,7 @@ class DebateCreate(BaseModel):
         default=20, ge=5, le=50, description="Maximum number of turns"
     )
     agents: list[AgentConfig] = Field(
-        ..., min_length=3, max_length=5, description="Agent configurations"
+        ..., min_length=2, max_length=5, description="Agent configurations"
     )
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -61,6 +76,9 @@ class DebateResponse(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: Optional[datetime] = Field(
         default=None, description="Last update timestamp"
+    )
+    agent_configs: list[AgentConfigResponse] = Field(
+        default_factory=list, description="Agent configurations"
     )
 
     model_config = ConfigDict(

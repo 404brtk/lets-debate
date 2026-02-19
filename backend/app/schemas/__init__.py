@@ -1,5 +1,7 @@
 # Auth schemas
 from app.schemas.auth import (
+    ApiKeysResponse,
+    ApiKeysUpdate,
     RefreshTokenRequest,
     Token,
     TokenData,
@@ -9,7 +11,12 @@ from app.schemas.auth import (
 )
 
 # Debate schemas
-from app.schemas.debate import AgentConfig, DebateCreate, DebateResponse
+from app.schemas.debate import (
+    AgentConfig,
+    AgentConfigResponse,
+    DebateCreate,
+    DebateResponse,
+)
 
 # Message schemas
 from app.schemas.message import MessageResponse, MessageCreate
@@ -33,8 +40,11 @@ __all__ = [
     "TokenPair",
     "RefreshTokenRequest",
     "TokenData",
+    "ApiKeysUpdate",
+    "ApiKeysResponse",
     # Debate
     "AgentConfig",
+    "AgentConfigResponse",
     "DebateCreate",
     "DebateResponse",
     # Message
