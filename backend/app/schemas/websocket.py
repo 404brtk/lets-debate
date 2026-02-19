@@ -32,15 +32,6 @@ class AgentSpokeEvent(DebateEvent):
     )
 
 
-class HumanJoinedEvent(DebateEvent):
-    """Human participant joined."""
-
-    type: str = Field(default="human_joined", description="Event type")
-    user_id: str = Field(..., description="User UUID")
-    username: str = Field(..., description="Username")
-    can_speak: bool = Field(..., description="Whether human can speak now")
-
-
 class DebateStatusEvent(DebateEvent):
     """Debate status changed."""
 
