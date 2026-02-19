@@ -5,10 +5,19 @@ from app.dependencies import CurrentUser, SessionDep
 from app.services.auth_service import (
     authenticate_user,
     create_token_pair,
+    get_user_api_keys_status,
     register_user,
     rotate_refresh_token,
+    update_user_api_keys,
 )
-from app.schemas import RefreshTokenRequest, TokenPair, UserCreate, UserResponse
+from app.schemas import (
+    ApiKeysResponse,
+    ApiKeysUpdate,
+    RefreshTokenRequest,
+    TokenPair,
+    UserCreate,
+    UserResponse,
+)
 
 router = APIRouter()
 
@@ -48,3 +57,25 @@ def refresh_tokens(payload: RefreshTokenRequest, db: SessionDep):
 def get_my_profile(current_user: CurrentUser):
     """Get profile of currently authenticated user."""
     return current_user
+
+
+@router.get("/me/api-keys", response_model=ApiKeysResponse)
+def get_api_keys(current_user: CurrentUser):
+    """Get API key status (masked, not plaintext)."""
+    return get_user_api_keys_status(current_user)
+
+
+@router.put("/me/api-keys", response_model=ApiKeysResponse)
+def set_api_keys(
+    payload: ApiKeysUpdate,
+    current_user: CurrentUser,
+    db: SessionDep,
+):
+    """Save or update user API keys (encrypted at rest)."""
+    user = update_user_api_keys(
+        db=db,
+        user=current_user,
+        openai_api_key=payload.openai_api_key,
+        google_api_key=payload.google_api_key,
+    )
+    return get_user_api_keys_status(user)

@@ -149,3 +149,65 @@ def authenticate_user(db: Session, username_or_email: str, password: str) -> Use
         )
 
     return user
+
+
+def update_user_api_keys(
+    db: Session,
+    user: User,
+    openai_api_key: str | None = None,
+    google_api_key: str | None = None,
+) -> User:
+    """Encrypt and store user API keys."""
+    from app.core.encryption import encrypt_api_key
+
+    if openai_api_key is not None:
+        user.encrypted_openai_key = (
+            encrypt_api_key(openai_api_key) if openai_api_key else None
+        )
+    if google_api_key is not None:
+        user.encrypted_google_key = (
+            encrypt_api_key(google_api_key) if google_api_key else None
+        )
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_user_api_keys_status(user: User) -> dict[str, object]:
+    """Return masked key status without exposing plaintext."""
+    from app.core.encryption import decrypt_api_key, mask_api_key
+
+    result: dict[str, object] = {
+        "has_openai_key": user.encrypted_openai_key is not None,
+        "has_google_key": user.encrypted_google_key is not None,
+        "openai_key_masked": None,
+        "google_key_masked": None,
+    }
+    if user.encrypted_openai_key:
+        result["openai_key_masked"] = mask_api_key(
+            decrypt_api_key(user.encrypted_openai_key)
+        )
+    if user.encrypted_google_key:
+        result["google_key_masked"] = mask_api_key(
+            decrypt_api_key(user.encrypted_google_key)
+        )
+    return result
+
+
+def get_decrypted_api_keys(user: User) -> dict[str, str | None]:
+    """Return decrypted API keys for LLM usage (internal only)."""
+    from app.core.encryption import decrypt_api_key
+
+    return {
+        "openai": (
+            decrypt_api_key(user.encrypted_openai_key)
+            if user.encrypted_openai_key
+            else None
+        ),
+        "google": (
+            decrypt_api_key(user.encrypted_google_key)
+            if user.encrypted_google_key
+            else None
+        ),
+    }
