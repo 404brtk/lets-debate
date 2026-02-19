@@ -1,18 +1,14 @@
+import asyncio
 import logging
-from typing import Optional
 
-from fastapi import (
-    APIRouter,
-    Query,
-    WebSocket,
-    WebSocketDisconnect,
-)
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from pydantic import UUID4
 
-from app.dependencies import SessionDep
-from app.services.debate_service import set_debate_status
+from app.db.session import SessionLocal
 from app.services.websocket_service import (
     ConnectionManager,
+    DebateSession,
+    active_debate_sessions,
     authenticate_websocket_user,
     connected_payload,
     error_payload,
@@ -24,70 +20,41 @@ from app.services.websocket_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-# Global connection manager instance
 manager = ConnectionManager()
 
 
 @router.websocket("/debates/{debate_id}")
-async def debate_websocket(
+async def websocket_debate(
     websocket: WebSocket,
     debate_id: UUID4,
-    db: SessionDep,
-    token: Optional[str] = Query(default=None),
+    token: str = Query(default=None),
 ):
+    """WebSocket endpoint for real-time debate interaction.
+
+    Key design: debate execution runs as an asyncio.Task so the
+    WS receive loop remains free to process pause/human messages.
     """
-    WebSocket endpoint for real-time debate updates.
-
-    Client messages:
-    - {"type": "start_debate"}: Start the automated AI debate
-    - {"type": "human_message", "content": "...", "message_type": "argument"}: Human participation
-    - {"type": "ping"}: Keep-alive ping
-
-    Server events:
-    - agent_thinking: Agent is generating response
-    - agent_token: Streaming token from current agent
-    - agent_spoke: Agent finished their turn
-    - human_spoke: Human posted a message
-    - debate_completed: Debate finished
-    - error: Error occurred
-    - connected: Connection confirmed
-    - pong: Ping response
-    """
-    # Accept the connection FIRST, then authenticate.
-    # This avoids the 403 HTTP rejection that FastAPI sends when a
-    # WebSocketException is raised before accept().
-    await websocket.accept()
-
-    try:
-        user, debate = authenticate_websocket_user(
-            db=db, debate_id=debate_id, token=token
-        )
-    except Exception as exc:
-        logger.warning("WebSocket auth failed for debate %s: %s", debate_id, exc)
-        await websocket.send_json(error_payload(f"Authentication failed: {str(exc)}"))
-        await websocket.close(code=1008, reason="Authentication failed")
-        return
-
+    db = SessionLocal()
     debate_key = str(debate_id)
 
-    # Register this connection with the manager (already accepted above)
-    if debate_key not in manager.active_connections:
-        manager.active_connections[debate_key] = []
-    manager.active_connections[debate_key].append(websocket)
+    await manager.connect(websocket, debate_key)
 
     try:
-        # Send connection confirmation
+        # Authenticate
+        try:
+            user, debate = authenticate_websocket_user(db, debate_id, token)
+        except ValueError as exc:
+            await manager.send_personal_message(error_payload(str(exc)), websocket)
+            return
+
         await manager.send_personal_message(connected_payload(debate_key), websocket)
 
-        # Listen for client messages
+        # Main receive loop — never blocked by debate execution
         while True:
-            data = await websocket.receive_text()
-            logger.info("WS received message: %s", data[:200])
+            raw_data = await websocket.receive_text()
 
             try:
-                message = parse_json_message(data)
+                message = parse_json_message(raw_data)
             except Exception:
                 await manager.send_personal_message(
                     error_payload("Invalid JSON payload"), websocket
@@ -95,66 +62,103 @@ async def debate_websocket(
                 continue
 
             msg_type = message.get("type")
-            logger.info(
-                "WS message type: %s, debate status: %s", msg_type, debate.status
-            )
 
             if msg_type == "start_debate":
-                # Transition debate to active status
-                if debate.status == "pending" or debate.status == "paused":
-                    from_status = debate.status
-                    try:
-                        set_debate_status(
-                            db=db,
-                            debate_id=debate_id,
-                            user=user,
-                            from_status=from_status,
-                            to_status="active",
-                            invalid_transition_message=f"Cannot start debate from {from_status} status",
-                        )
-                        # Refresh the debate object
-                        db.refresh(debate)
-                        logger.info("Debate status changed to: %s", debate.status)
-                    except Exception as exc:
-                        logger.error("Failed to start debate: %s", exc)
-                        await manager.send_personal_message(
-                            error_payload(str(exc)), websocket
-                        )
-                        continue
-
-                if debate.status != "active":
+                # Validate status transition
+                if debate.status not in ("pending", "paused"):
                     await manager.send_personal_message(
                         error_payload(
-                            f"Debate is in '{debate.status}' status, cannot start"
+                            f"Cannot start debate in '{debate.status}' status"
                         ),
                         websocket,
                     )
                     continue
 
-                logger.info("Starting debate run via websocket...")
-                # Run the full debate with streaming
-                await run_debate_via_websocket(
-                    manager=manager,
+                # Don't start if already running
+                if debate_key in active_debate_sessions:
+                    await manager.send_personal_message(
+                        error_payload("Debate is already running"),
+                        websocket,
+                    )
+                    continue
+
+                # Transition to active
+                debate.status = "active"
+                db.commit()
+
+                # Create session and register
+                session = DebateSession()
+                active_debate_sessions[debate_key] = session
+
+                # Launch debate as background task
+                session.task = asyncio.create_task(
+                    run_debate_via_websocket(
+                        manager=manager,
+                        db=db,
+                        debate=debate,
+                        user=user,
+                        debate_key=debate_key,
+                        session=session,
+                    )
+                )
+
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "debate_started",
+                        "debate_id": debate_key,
+                    },
+                )
+
+            elif msg_type == "pause_debate":
+                session = active_debate_sessions.get(debate_key)
+                if session is not None:
+                    session.stop_event.set()
+                else:
+                    await manager.send_personal_message(
+                        error_payload("No active debate session to pause"),
+                        websocket,
+                    )
+
+            elif msg_type == "human_message":
+                scope, payload = process_client_message(
                     db=db,
                     debate=debate,
                     user=user,
                     debate_key=debate_key,
+                    raw_data=raw_data,
                 )
-
-            else:
-                # Handle other message types (human_message, ping)
-                dispatch, payload = process_client_message(
-                    db=db,
-                    debate=debate,
-                    user=user,
-                    debate_key=debate_key,
-                    raw_data=data,
-                )
-
-                if dispatch == "broadcast":
+                if scope == "broadcast":
                     await manager.broadcast(debate_key, payload)
                 else:
                     await manager.send_personal_message(payload, websocket)
 
+            elif msg_type == "ping":
+                await manager.send_personal_message(
+                    {"type": "pong", "debate_id": debate_key}, websocket
+                )
+
+            else:
+                await manager.send_personal_message(
+                    error_payload("Unsupported message type"), websocket
+                )
+
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for debate {debate_key}")
+    except Exception as exc:
+        logger.error(f"WebSocket error for debate {debate_key}: {exc}")
+    finally:
         manager.disconnect(websocket, debate_key)
+
+        # Cancel running debate task if this was the last connection
+        if debate_key not in manager.active_connections:
+            session = active_debate_sessions.get(debate_key)
+            if session is not None and session.task is not None:
+                session.task.cancel()
+                try:
+                    await session.task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                active_debate_sessions.pop(debate_key, None)
+
+        db.close()

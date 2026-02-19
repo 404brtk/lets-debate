@@ -1,17 +1,23 @@
+import asyncio
 import json
+import uuid as _uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import HTTPException, WebSocket
 from pydantic import UUID4
 from sqlalchemy import func, select
-from sqlalchemy.orm import joinedload
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload, Session
 
 from app.models import Debate, Message, User
 from app.services.auth_service import get_current_user_by_token, get_decrypted_api_keys
-from app.services.llm_service import AgentSpec, DebateGraphState, run_full_debate
+from app.services.llm_service import (
+    AgentSpec,
+    DebateGraphState,
+    generate_consensus,
+    run_full_debate,
+)
 
 ALLOWED_MESSAGE_TYPES = {
     "argument",
@@ -21,6 +27,19 @@ ALLOWED_MESSAGE_TYPES = {
     "evidence",
     "conclusion",
 }
+
+
+@dataclass
+class DebateSession:
+    """Tracks a running debate's control handles."""
+
+    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    human_message_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    task: Optional[asyncio.Task] = None
+
+
+# Module-level registry of active debate sessions keyed by debate_id string
+active_debate_sessions: dict[str, DebateSession] = {}
 
 
 class ConnectionManager:
@@ -64,12 +83,7 @@ class ConnectionManager:
 def authenticate_websocket_user(
     db: Session, debate_id: UUID4, token: Optional[str]
 ) -> tuple[User, Debate]:
-    """Authenticate a WebSocket user and return the user + debate.
-
-    Raises ValueError instead of WebSocketException so the caller
-    (which has already accepted the connection) can send a JSON error
-    message back before closing.
-    """
+    """Authenticate a WebSocket user and return the user + debate."""
     if token is None:
         raise ValueError("Missing authentication token")
 
@@ -78,7 +92,6 @@ def authenticate_websocket_user(
     except HTTPException as exc:
         raise ValueError("Invalid or expired authentication token") from exc
 
-    # Eager-load agent_configs so they're available without lazy loading
     stmt = (
         select(Debate)
         .options(joinedload(Debate.agent_configs))
@@ -131,8 +144,8 @@ def persist_human_message(
     content: str,
     message_type: str,
 ) -> Message:
-    if debate.status != "active":
-        raise ValueError("Debate is not active")
+    if debate.status not in ("active", "paused"):
+        raise ValueError("Debate is not active or paused")
 
     if message_type not in ALLOWED_MESSAGE_TYPES:
         raise ValueError("Unsupported message_type")
@@ -200,6 +213,7 @@ async def run_debate_via_websocket(
     debate: Debate,
     user: User,
     debate_key: str,
+    session: DebateSession,
 ) -> None:
     """Run the full automated debate, streaming events over WebSocket."""
     api_keys = get_decrypted_api_keys(user)
@@ -237,8 +251,14 @@ async def run_debate_via_websocket(
         max_turns=debate.max_turns,
     )
 
+    debate_paused = False
+
     try:
-        async for event in run_full_debate(state):
+        async for event in run_full_debate(
+            state,
+            stop_event=session.stop_event,
+            human_message_queue=session.human_message_queue,
+        ):
             event_type = event["type"]
 
             if event_type == "agent_thinking":
@@ -276,17 +296,14 @@ async def run_debate_via_websocket(
                 # Persist the message to DB
                 message_row = Message(
                     debate_id=debate.id,
-                    agent_id=None,  # We'll look up the AgentConfig id
+                    agent_id=None,
                     agent_name=agent.name,
                     content=content,
                     message_type="argument",
                     turn_number=turn,
                     model_used=agent.model_name,
                 )
-                # Set the agent_id from the config
                 try:
-                    import uuid as _uuid
-
                     message_row.agent_id = _uuid.UUID(agent.id)
                 except (ValueError, AttributeError):
                     pass
@@ -312,6 +329,35 @@ async def run_debate_via_websocket(
                     },
                 )
 
+            elif event_type == "human_injected":
+                human_msg = event["message"]
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "human_injected",
+                        "debate_id": debate_key,
+                        "agent_name": human_msg.get("agent_name", "Human"),
+                        "content": human_msg.get("content", ""),
+                        "turn_number": human_msg.get("turn_number", 0),
+                        "timestamp": utc_timestamp(),
+                    },
+                )
+
+            elif event_type == "debate_paused":
+                debate_paused = True
+                debate.status = "paused"
+                db.commit()
+
+                await manager.broadcast(
+                    debate_key,
+                    {
+                        "type": "debate_paused",
+                        "debate_id": debate_key,
+                        "total_turns": event["total_turns"],
+                        "timestamp": utc_timestamp(),
+                    },
+                )
+
             elif event_type == "debate_completed":
                 debate.status = "completed"
                 debate.completed_at = datetime.now(timezone.utc)
@@ -327,12 +373,71 @@ async def run_debate_via_websocket(
                     },
                 )
 
+        # Generate consensus after natural completion (not paused)
+        if not debate_paused:
+            await manager.broadcast(
+                debate_key,
+                {
+                    "type": "consensus_started",
+                    "debate_id": debate_key,
+                    "timestamp": utc_timestamp(),
+                },
+            )
+
+            try:
+                async for c_event in generate_consensus(state):
+                    if c_event["type"] == "consensus_token":
+                        await manager.broadcast(
+                            debate_key,
+                            {
+                                "type": "consensus_token",
+                                "debate_id": debate_key,
+                                "token": c_event["token"],
+                            },
+                        )
+                    elif c_event["type"] == "consensus_complete":
+                        db.refresh(debate)
+                        debate.summary = c_event["summary"]
+                        db.commit()
+                        db.refresh(debate)
+
+                        await manager.broadcast(
+                            debate_key,
+                            {
+                                "type": "consensus_generated",
+                                "debate_id": debate_key,
+                                "summary": c_event["summary"],
+                                "timestamp": utc_timestamp(),
+                            },
+                        )
+            except Exception as exc:
+                await manager.broadcast(
+                    debate_key,
+                    error_payload(f"Consensus generation failed: {str(exc)}"),
+                )
+
+    except asyncio.CancelledError:
+        # Task was cancelled (e.g. client disconnected)
+        debate.status = "paused"
+        db.commit()
+        await manager.broadcast(
+            debate_key,
+            {
+                "type": "debate_paused",
+                "debate_id": debate_key,
+                "total_turns": state.turn_count,
+                "timestamp": utc_timestamp(),
+            },
+        )
     except Exception as exc:
         await manager.broadcast(
             debate_key,
             error_payload(f"Debate error: {str(exc)}"),
         )
         raise
+    finally:
+        # Clean up session from registry
+        active_debate_sessions.pop(debate_key, None)
 
 
 def process_client_message(
@@ -369,6 +474,18 @@ def process_client_message(
         except ValueError as exc:
             return "personal", error_payload(str(exc))
 
+        # Also enqueue into the running debate session so agents see this message
+        session = active_debate_sessions.get(debate_key)
+        if session is not None and not session.stop_event.is_set():
+            session.human_message_queue.put_nowait(
+                {
+                    "agent_name": user.username,
+                    "content": content,
+                    "turn_number": message_row.turn_number,
+                    "role": "human",
+                }
+            )
+
         return (
             "broadcast",
             {
@@ -383,6 +500,17 @@ def process_client_message(
                 "timestamp": message_row.created_at.isoformat(),
             },
         )
+
+    if msg_type == "pause_debate":
+        session = active_debate_sessions.get(debate_key)
+        if session is not None:
+            session.stop_event.set()
+            return "personal", {
+                "type": "pause_acknowledged",
+                "debate_id": debate_key,
+                "timestamp": utc_timestamp(),
+            }
+        return "personal", error_payload("No active debate session to pause")
 
     if msg_type == "ping":
         return "personal", pong_payload(debate_key)
