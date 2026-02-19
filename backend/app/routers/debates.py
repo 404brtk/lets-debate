@@ -1,18 +1,20 @@
 from typing import Annotated
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, status as http_status
+from fastapi.responses import Response
 from pydantic import UUID4
 
 from app.dependencies import CurrentUser, RedisDep, SessionDep
 from app.services.debate_service import (
     create_debate_with_agents,
+    delete_debate_for_user,
     get_debate_messages,
     get_user_debate_or_404,
-    join_debate_for_user,
     list_user_debates,
-    pause_debate_for_user,
-    start_debate_for_user,
+    participate_in_debate,
+    resume_debate_for_user,
+    stop_debate_for_user,
 )
-from app.schemas import DebateCreate, DebateResponse, MessageResponse
+from app.schemas import DebateCreate, DebateResponse, MessageCreate, MessageResponse
 
 router = APIRouter()
 
@@ -23,14 +25,7 @@ async def create_debate(
     current_user: CurrentUser,
     db: SessionDep,
 ):
-    """
-    Create a new debate with configured agents.
-
-    - **topic**: The question or topic to debate
-    - **description**: Optional context or background
-    - **max_turns**: Maximum number of turns (5-50)
-    - **agents**: 3-5 agents with different roles
-    """
+    """Create a new debate with configured agents."""
     return create_debate_with_agents(db=db, debate_in=debate, user=current_user)
 
 
@@ -51,15 +46,26 @@ async def get_debate(debate_id: UUID4, current_user: CurrentUser, db: SessionDep
     return get_user_debate_or_404(db=db, debate_id=debate_id, user_id=current_user.id)
 
 
-@router.post("/{debate_id}/start")
-async def start_debate(
+@router.delete("/{debate_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def delete_debate(
+    debate_id: UUID4,
+    current_user: CurrentUser,
+    db: SessionDep,
+):
+    """Delete a debate and all related data."""
+    delete_debate_for_user(db=db, debate_id=debate_id, user=current_user)
+    return Response(status_code=http_status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{debate_id}/stop")
+async def stop_debate(
     debate_id: UUID4,
     current_user: CurrentUser,
     db: SessionDep,
     redis: RedisDep,
 ):
-    """Start the debate."""
-    return start_debate_for_user(
+    """Stop a running debate (signals WS session and updates DB status to paused)."""
+    return stop_debate_for_user(
         db=db,
         redis_client=redis,
         debate_id=debate_id,
@@ -67,15 +73,15 @@ async def start_debate(
     )
 
 
-@router.post("/{debate_id}/pause")
-async def pause_debate(
+@router.post("/{debate_id}/resume")
+async def resume_debate(
     debate_id: UUID4,
     current_user: CurrentUser,
     db: SessionDep,
     redis: RedisDep,
 ):
-    """Pause the debate."""
-    return pause_debate_for_user(
+    """Resume a paused debate (sets DB status to active; WS start_debate triggers execution)."""
+    return resume_debate_for_user(
         db=db,
         redis_client=redis,
         debate_id=debate_id,
@@ -101,17 +107,18 @@ async def get_messages(
     )
 
 
-@router.post("/{debate_id}/participate")
+@router.post("/{debate_id}/participate", response_model=MessageResponse)
 async def human_participate(
     debate_id: UUID4,
+    body: MessageCreate,
     current_user: CurrentUser,
     db: SessionDep,
-    redis: RedisDep,
 ):
-    """Join the debate as a human participant."""
-    return join_debate_for_user(
+    """Submit a human message to an active debate."""
+    return participate_in_debate(
         db=db,
-        redis_client=redis,
         debate_id=debate_id,
         user=current_user,
+        content=body.content,
+        message_type=body.message_type,
     )

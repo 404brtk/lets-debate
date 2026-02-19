@@ -25,13 +25,6 @@ def get_user_debate_or_404(db: Session, debate_id: UUID4, user_id: uuid.UUID) ->
 def create_debate_with_agents(
     db: Session, debate_in: DebateCreate, user: User
 ) -> Debate:
-    roles = [agent.role for agent in debate_in.agents]
-    if len(set(roles)) != len(roles):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Agent roles must be unique",
-        )
-
     normalized_names = [agent.name.strip().lower() for agent in debate_in.agents]
     if len(set(normalized_names)) != len(normalized_names):
         raise HTTPException(
@@ -126,70 +119,89 @@ def publish_debate_event(
     redis_client.publish(f"debate:{debate_id}", json.dumps(event))
 
 
-def start_debate_for_user(
+def delete_debate_for_user(
+    db: Session,
+    debate_id: UUID4,
+    user: User,
+) -> None:
+    """Delete a debate and all its related data (cascade)."""
+    debate = get_user_debate_or_404(db, debate_id, user.id)
+    db.delete(debate)
+    db.commit()
+
+
+def resume_debate_for_user(
     db: Session,
     redis_client: redis.Redis,
     debate_id: UUID4,
     user: User,
 ) -> dict[str, str]:
+    """Transition a paused debate back to active."""
     set_debate_status(
         db=db,
         debate_id=debate_id,
         user=user,
-        from_status="pending",
+        from_status="paused",
         to_status="active",
-        invalid_transition_message="Debate can only be started from pending status",
+        invalid_transition_message="Debate can only be resumed from paused status",
     )
     publish_debate_event(
         redis_client=redis_client,
         debate_id=debate_id,
-        event_type="debate_started",
+        event_type="debate_resumed",
         payload={},
     )
-    return {"message": "Debate started", "debate_id": str(debate_id)}
+    return {"message": "Debate resumed", "debate_id": str(debate_id)}
 
 
-def pause_debate_for_user(
+def stop_debate_for_user(
     db: Session,
     redis_client: redis.Redis,
     debate_id: UUID4,
     user: User,
 ) -> dict[str, str]:
-    set_debate_status(
-        db=db,
-        debate_id=debate_id,
-        user=user,
-        from_status="active",
-        to_status="paused",
-        invalid_transition_message="Debate can only be paused from active status",
-    )
+    """Stop a running debate by signalling the active WS session."""
+    from app.services.websocket_service import active_debate_sessions
+
+    debate = get_user_debate_or_404(db, debate_id, user.id)
+    if debate.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debate can only be stopped from active status",
+        )
+
+    # Signal the running session to stop
+    session = active_debate_sessions.get(str(debate_id))
+    if session is not None:
+        session.stop_event.set()
+
+    # Also update DB status immediately for REST callers
+    debate.status = "paused"
+    db.commit()
+
     publish_debate_event(
         redis_client=redis_client,
         debate_id=debate_id,
         event_type="debate_paused",
         payload={},
     )
-    return {"message": "Debate paused", "debate_id": str(debate_id)}
+    return {"message": "Debate stopped", "debate_id": str(debate_id)}
 
 
-def join_debate_for_user(
+def participate_in_debate(
     db: Session,
-    redis_client: redis.Redis,
     debate_id: UUID4,
     user: User,
-) -> dict[str, str]:
-    debate = get_user_debate_or_404(db=db, debate_id=debate_id, user_id=user.id)
-    if debate.status not in {"active", "paused"}:
+    content: str,
+    message_type: str = "argument",
+) -> Message:
+    """Persist a human message in a debate via REST."""
+    debate = get_user_debate_or_404(db, debate_id, user.id)
+    if debate.status not in ("active", "paused"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only join an active or paused debate",
+            detail="Can only participate in an active or paused debate",
         )
 
-    publish_debate_event(
-        redis_client=redis_client,
-        debate_id=debate_id,
-        event_type="human_joined",
-        payload={"user_id": str(user.id)},
-    )
-
-    return {"message": "Joined debate", "debate_id": str(debate_id)}
+    from app.services.websocket_service import persist_human_message
+    return persist_human_message(db, debate, user, content, message_type)
