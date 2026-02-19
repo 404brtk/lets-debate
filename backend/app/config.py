@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,7 +8,9 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    DATABASE_URL: str = "postgresql://debate_user:debate_pass@localhost:5432/ai_debate"
+    DATABASE_URL: str = (
+        "postgresql+psycopg://debate_user:debate_pass@localhost:5432/ai_debate"
+    )
 
     REDIS_URL: str = "redis://localhost:6379/0"
     BACKEND_CORS_ORIGINS: list[str] = [
@@ -28,6 +31,22 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise TypeError("DATABASE_URL must be a string")
+
+        url = value.strip()
+        if url.startswith("postgresql+psycopg://"):
+            return url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+        raise ValueError(
+            "DATABASE_URL must start with postgresql+psycopg:// or postgresql://"
+        )
 
 
 @lru_cache()
