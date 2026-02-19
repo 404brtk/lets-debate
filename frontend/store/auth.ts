@@ -7,6 +7,15 @@ interface User {
   email: string;
   username: string;
   created_at: string;
+  has_openai_key: boolean;
+  has_google_key: boolean;
+}
+
+interface ApiKeysStatus {
+  has_openai_key: boolean;
+  has_google_key: boolean;
+  openai_key_masked: string | null;
+  google_key_masked: string | null;
 }
 
 interface RegisterData {
@@ -17,16 +26,20 @@ interface RegisterData {
 
 interface AuthState {
   user: User | null;
+  apiKeys: ApiKeysStatus | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (formData: FormData) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => void;
   fetchUser: () => Promise<void>;
+  fetchApiKeys: () => Promise<void>;
+  updateApiKeys: (keys: { openai_api_key?: string; google_api_key?: string }) => Promise<void>;
 }
 
 export const useAuth = create<AuthState>((set) => ({
   user: null,
+  apiKeys: null,
   isAuthenticated: !!Cookies.get('access_token') || !!Cookies.get('refresh_token'),
   isLoading: false,
 
@@ -79,7 +92,7 @@ export const useAuth = create<AuthState>((set) => ({
   logout: () => {
     Cookies.remove('access_token');
     Cookies.remove('refresh_token');
-    set({ user: null, isAuthenticated: false });
+    set({ user: null, apiKeys: null, isAuthenticated: false });
     if (typeof window !== 'undefined') {
         window.location.href = '/login';
     }
@@ -95,6 +108,27 @@ export const useAuth = create<AuthState>((set) => ({
       set({ user: null, isAuthenticated: false });
     } finally {
       set({ isLoading: false });
+    }
+  },
+
+  fetchApiKeys: async () => {
+    try {
+      const response = await api.get('/auth/me/api-keys');
+      set({ apiKeys: response.data });
+    } catch (error) {
+      console.error('Failed to fetch API keys:', error);
+    }
+  },
+
+  updateApiKeys: async (keys) => {
+    try {
+      const response = await api.put('/auth/me/api-keys', keys);
+      set({ apiKeys: response.data });
+      // Also refresh user to update has_*_key flags
+      await useAuth.getState().fetchUser();
+    } catch (error) {
+      console.error('Failed to update API keys:', error);
+      throw error;
     }
   },
 }));

@@ -7,5 +7,5 @@ export default async function Home() {
     Boolean(cookieStore.get('access_token')?.value) ||
     Boolean(cookieStore.get('refresh_token')?.value);
 
-  redirect(hasAuthToken ? '/profile' : '/login');
+  redirect(hasAuthToken ? '/debates' : '/login');
 }

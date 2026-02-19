@@ -6,7 +6,6 @@ import { useAuth } from '@/store/auth';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const { register, handleSubmit, formState: { errors } } = useForm();
@@ -22,7 +21,7 @@ export default function LoginPage() {
 
     try {
       await login(formData);
-      router.push('/profile');
+      router.push('/debates');
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
@@ -33,77 +32,62 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Sign in to your account
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Or{' '}
-            <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
-              create a new account
-            </Link>
+    <div className="auth-wrapper">
+      <div className="auth-card">
+        <div className="auth-header">
+          <span className="auth-logo">⚡ Let&apos;s Debate</span>
+          <h1 className="auth-title">Welcome back</h1>
+          <p className="auth-subtitle">
+            Sign in to continue to your debates
           </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
-          <div className="-space-y-px rounded-md shadow-sm">
-            <div>
-              <label htmlFor="username" className="sr-only">
-                Username / Email
-              </label>
-              <input
-                id="username"
-                type="text"
-                autoComplete="email"
-                required
-                className="relative block w-full rounded-t-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                placeholder="Username (Email)"
-                {...register('username', { required: 'Username is required' })}
-              />
-              {errors.username && (
-                <p className="text-red-500 text-xs mt-1">{errors.username.message?.toString()}</p>
-              )}
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="relative block w-full rounded-b-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3"
-                placeholder="Password"
-                {...register('password', { required: 'Password is required' })}
-              />
-               {errors.password && (
-                <p className="text-red-500 text-xs mt-1">{errors.password.message?.toString()}</p>
-              )}
-            </div>
+
+        <form className="auth-form" onSubmit={handleSubmit(onSubmit)}>
+          {error && <div className="form-error">{error}</div>}
+
+          <div className="form-group">
+            <label htmlFor="username" className="form-label">Username or Email</label>
+            <input
+              id="username"
+              type="text"
+              autoComplete="email"
+              className="form-input"
+              placeholder="Enter your username or email"
+              {...register('username', { required: 'Username is required' })}
+            />
+            {errors.username && (
+              <span className="field-error">{errors.username.message?.toString()}</span>
+            )}
           </div>
 
-          {error && (
-            <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative flex w-full justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <Loader2 className="animate-spin h-5 w-5" />
-              ) : (
-                'Sign in'
-              )}
-            </button>
+          <div className="form-group">
+            <label htmlFor="password" className="form-label">Password</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              className="form-input"
+              placeholder="Enter your password"
+              {...register('password', { required: 'Password is required' })}
+            />
+            {errors.password && (
+              <span className="field-error">{errors.password.message?.toString()}</span>
+            )}
           </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="btn btn-primary btn-block"
+          >
+            {isLoading ? 'Signing in...' : 'Sign in'}
+          </button>
         </form>
+
+        <p className="auth-divider">
+          Don&apos;t have an account?{' '}
+          <Link href="/register">Create one</Link>
+        </p>
       </div>
     </div>
   );

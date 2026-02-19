@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const protectedRoutes = ['/profile'];
+const protectedRoutes = ['/profile', '/debates'];
 const publicRoutes = ['/login', '/register'];
 
 export function proxy(request: NextRequest) {
@@ -36,7 +36,7 @@ export function proxy(request: NextRequest) {
 
   // 2. Redirect authenticated users from public auth routes (login/register) to profile (or home)
   if (isPublicRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL('/profile', request.url));
+    return NextResponse.redirect(new URL('/debates', request.url));
   }
 
   return NextResponse.next();
