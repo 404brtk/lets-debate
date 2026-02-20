@@ -48,9 +48,6 @@ class Debate(Base):
 
     # Summary after completion
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    consensus_score: Mapped[Optional[str]] = mapped_column(
-        String(10), nullable=True
-    )  # Store as string to avoid float issues
 
     # Relationships
     user: Mapped["User"] = relationship(

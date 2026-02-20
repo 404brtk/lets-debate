@@ -81,9 +81,6 @@ class DebateResponse(BaseModel):
         default=None, description="Completion timestamp"
     )
     summary: Optional[str] = Field(default=None, description="Consensus summary")
-    consensus_score: Optional[str] = Field(
-        default=None, description="Consensus score (0-100)"
-    )
     agent_configs: list[AgentConfigResponse] = Field(
         default_factory=list, description="Agent configurations"
     )
