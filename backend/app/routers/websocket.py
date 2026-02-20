@@ -128,6 +128,37 @@ async def websocket_debate(
                     debate_key=debate_key,
                     raw_data=raw_data,
                 )
+
+                if (
+                    scope == "broadcast"
+                    and payload.get("type") == "human_spoke"
+                    and debate.status == "paused"
+                    and debate_key not in active_debate_sessions
+                ):
+                    debate.status = "active"
+                    db.commit()
+
+                    session = DebateSession()
+                    active_debate_sessions[debate_key] = session
+                    session.task = asyncio.create_task(
+                        run_debate_via_websocket(
+                            manager=manager,
+                            db=db,
+                            debate=debate,
+                            user=user,
+                            debate_key=debate_key,
+                            session=session,
+                        )
+                    )
+
+                    await manager.broadcast(
+                        debate_key,
+                        {
+                            "type": "debate_started",
+                            "debate_id": debate_key,
+                        },
+                    )
+
                 if scope == "broadcast":
                     await manager.broadcast(debate_key, payload)
                 else:
