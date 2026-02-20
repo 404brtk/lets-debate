@@ -4,8 +4,8 @@ LangChain-powered multi-agent AI debate app with a FastAPI backend and Next.js f
 
 ## Demo Video
 
-<video controls controlsList="nodownload" width="100%">
-	<source src="docs/demo.mp4" type="video/mp4" />
+<video controls width="100%">
+	<source src="https://github.com/user-attachments/assets/9b83f6bd-cac6-4109-a7d0-5b057d778b10" type="video/mp4" />
 	Your browser does not support the video tag.
 </video>
 
