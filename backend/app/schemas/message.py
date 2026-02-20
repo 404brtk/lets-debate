@@ -19,6 +19,7 @@ class MessageResponse(BaseModel):
     agent_id: Optional[UUID4] = Field(
         default=None, description="Agent UUID (None if human)"
     )
+    agent_role: Optional[str] = Field(default=None, description="Agent role")
     agent_name: str = Field(..., description="Display name of agent/human")
     content: str = Field(..., description="Message content")
     message_type: MessageType = Field(

@@ -69,3 +69,9 @@ class Message(Base):
 
     def __repr__(self):
         return f"<Message(id={self.id}, debate_id={self.debate_id}, turn={self.turn_number})>"
+
+    @property
+    def agent_role(self) -> Optional[str]:
+        if self.agent is None:
+            return None
+        return self.agent.role
