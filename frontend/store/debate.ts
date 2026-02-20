@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import { buildDebateWsUrl } from '@/lib/ws';
 import Cookies from 'js-cookie';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ export const useDebate = create<DebateState>((set, get) => ({
     }
 
     const token = Cookies.get('access_token');
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'}/api/v1/ws/debates/${debateId}?token=${token}`;
+    const wsUrl = buildDebateWsUrl(debateId, token);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
