@@ -3,7 +3,7 @@ from fastapi import APIRouter, Query, status as http_status
 from fastapi.responses import Response
 from pydantic import UUID4
 
-from app.dependencies import CurrentUser, RedisDep, SessionDep
+from app.dependencies import CurrentUser, SessionDep
 from app.services.debate_service import (
     create_debate_with_agents,
     delete_debate_for_user,
@@ -62,12 +62,10 @@ async def stop_debate(
     debate_id: UUID4,
     current_user: CurrentUser,
     db: SessionDep,
-    redis: RedisDep,
 ):
     """Stop a running debate (signals WS session and updates DB status to paused)."""
     return stop_debate_for_user(
         db=db,
-        redis_client=redis,
         debate_id=debate_id,
         user=current_user,
     )
@@ -78,12 +76,10 @@ async def resume_debate(
     debate_id: UUID4,
     current_user: CurrentUser,
     db: SessionDep,
-    redis: RedisDep,
 ):
     """Resume a paused debate (sets DB status to active; WS start_debate triggers execution)."""
     return resume_debate_for_user(
         db=db,
-        redis_client=redis,
         debate_id=debate_id,
         user=current_user,
     )

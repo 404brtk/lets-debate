@@ -11,10 +11,7 @@ from app.routers import auth, debates, websocket
 from app.config import get_settings
 from app.db.session import SessionLocal
 from app.dependencies import (
-    RedisDep,
     SessionDep,
-    close_redis_client,
-    create_redis_client,
 )
 from app.services.auth_service import cleanup_expired_refresh_tokens
 
@@ -55,15 +52,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info("Database schema management is delegated to Alembic migrations")
 
-    try:
-        logger.info("Initializing Redis client...")
-        app.state.redis = create_redis_client()
-        app.state.redis.ping()
-        logger.info("Redis client initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize Redis client: {e}")
-        raise
-
     app.state.refresh_cleanup_task = asyncio.create_task(refresh_token_cleanup_worker())
 
     yield
@@ -77,13 +65,6 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             logger.info("Refresh token cleanup task cancelled")
 
-    redis_client = getattr(app.state, "redis", None)
-    if redis_client is not None:
-        try:
-            close_redis_client(redis_client)
-            logger.info("Redis client closed")
-        except Exception as e:
-            logger.error(f"Error while closing Redis client: {e}")
     logger.info("Shutting down AI Debate System...")
 
 
@@ -109,7 +90,7 @@ app.include_router(websocket.router, prefix="/api/v1/ws", tags=["websocket"])
 
 
 @app.get("/health", tags=["health"])
-async def health_check(db: SessionDep, redis: RedisDep):
+async def health_check(db: SessionDep):
     """Health endpoint with liveness/readiness checks for orchestrators."""
     checks: dict[str, dict[str, object]] = {}
     ready = True
@@ -120,13 +101,6 @@ async def health_check(db: SessionDep, redis: RedisDep):
     except Exception as exc:
         ready = False
         checks["database"] = {"ok": False, "error": str(exc)}
-
-    try:
-        redis.ping()
-        checks["redis"] = {"ok": True}
-    except Exception as exc:
-        ready = False
-        checks["redis"] = {"ok": False, "error": str(exc)}
 
     payload = {
         "status": "healthy" if ready else "degraded",

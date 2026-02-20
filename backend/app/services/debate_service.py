@@ -1,7 +1,5 @@
-import json
 import uuid
 
-import redis
 from fastapi import HTTPException, status
 from pydantic import UUID4
 from sqlalchemy import select
@@ -109,16 +107,6 @@ def get_debate_messages(
     return list(db.scalars(stmt).unique().all())
 
 
-def publish_debate_event(
-    redis_client: redis.Redis,
-    debate_id: UUID4,
-    event_type: str,
-    payload: dict[str, object],
-) -> None:
-    event = {"type": event_type, "debate_id": str(debate_id), **payload}
-    redis_client.publish(f"debate:{debate_id}", json.dumps(event))
-
-
 def delete_debate_for_user(
     db: Session,
     debate_id: UUID4,
@@ -132,7 +120,6 @@ def delete_debate_for_user(
 
 def resume_debate_for_user(
     db: Session,
-    redis_client: redis.Redis,
     debate_id: UUID4,
     user: User,
 ) -> dict[str, str]:
@@ -145,18 +132,11 @@ def resume_debate_for_user(
         to_status="active",
         invalid_transition_message="Debate can only be resumed from paused status",
     )
-    publish_debate_event(
-        redis_client=redis_client,
-        debate_id=debate_id,
-        event_type="debate_resumed",
-        payload={},
-    )
     return {"message": "Debate resumed", "debate_id": str(debate_id)}
 
 
 def stop_debate_for_user(
     db: Session,
-    redis_client: redis.Redis,
     debate_id: UUID4,
     user: User,
 ) -> dict[str, str]:
@@ -179,12 +159,6 @@ def stop_debate_for_user(
     debate.status = "paused"
     db.commit()
 
-    publish_debate_event(
-        redis_client=redis_client,
-        debate_id=debate_id,
-        event_type="debate_paused",
-        payload={},
-    )
     return {"message": "Debate stopped", "debate_id": str(debate_id)}
 
 
@@ -204,4 +178,5 @@ def participate_in_debate(
         )
 
     from app.services.websocket_service import persist_human_message
+
     return persist_human_message(db, debate, user, content, message_type)

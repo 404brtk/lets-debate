@@ -12,7 +12,6 @@ class Settings(BaseSettings):
         "postgresql+psycopg://debate_user:debate_pass@localhost:5432/ai_debate"
     )
 
-    REDIS_URL: str = "redis://localhost:6379/0"
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
     ]
