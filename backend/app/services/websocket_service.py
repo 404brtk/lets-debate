@@ -207,6 +207,25 @@ def _load_existing_messages(db: Session, debate_id) -> list[dict]:
     ]
 
 
+def _resolve_next_agent_index(
+    agents: list[AgentSpec], existing_messages: list[dict]
+) -> int:
+    """Pick the next speaking agent based on the last AI speaker in history."""
+    if not agents:
+        return 0
+
+    for msg in reversed(existing_messages):
+        agent_id = msg.get("agent_id")
+        if not agent_id:
+            continue
+
+        for idx, agent in enumerate(agents):
+            if agent.id == agent_id:
+                return (idx + 1) % len(agents)
+
+    return 0
+
+
 async def run_debate_via_websocket(
     manager: ConnectionManager,
     db: Session,
@@ -247,6 +266,7 @@ async def run_debate_via_websocket(
         agents=agents,
         api_keys=api_keys,
         messages=existing_messages,
+        current_agent_index=_resolve_next_agent_index(agents, existing_messages),
         turn_count=debate.current_turn,
         max_turns=debate.max_turns,
     )
