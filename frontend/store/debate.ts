@@ -61,6 +61,7 @@ interface DebateState {
   wsConnection: WebSocket | null;
   isLoading: boolean;
   isDebateRunning: boolean;
+  isPausePending: boolean;
   consensusSummary: string;
   isGeneratingConsensus: boolean;
 
@@ -91,6 +92,7 @@ export const useDebate = create<DebateState>((set, get) => ({
   wsConnection: null,
   isLoading: false,
   isDebateRunning: false,
+  isPausePending: false,
   consensusSummary: '',
   isGeneratingConsensus: false,
 
@@ -175,6 +177,7 @@ export const useDebate = create<DebateState>((set, get) => ({
         case 'debate_started':
           set((state) => ({
             isDebateRunning: true,
+            isPausePending: false,
             currentDebate: state.currentDebate
               ? { ...state.currentDebate, status: 'active' }
               : null,
@@ -250,6 +253,7 @@ export const useDebate = create<DebateState>((set, get) => ({
         case 'debate_paused':
           set((state) => ({
             isDebateRunning: false,
+            isPausePending: false,
             currentDebate: state.currentDebate
               ? { ...state.currentDebate, status: 'paused' }
               : null,
@@ -259,6 +263,7 @@ export const useDebate = create<DebateState>((set, get) => ({
         case 'debate_completed':
           set((state) => ({
             isDebateRunning: false,
+            isPausePending: false,
             currentDebate: state.currentDebate
               ? { ...state.currentDebate, status: 'completed' }
               : null,
@@ -290,7 +295,7 @@ export const useDebate = create<DebateState>((set, get) => ({
 
         case 'error':
           console.error('Debate error:', data.error);
-          set({ isDebateRunning: false, isGeneratingConsensus: false });
+          set({ isDebateRunning: false, isPausePending: false, isGeneratingConsensus: false });
           break;
 
         case 'pong':
@@ -305,7 +310,7 @@ export const useDebate = create<DebateState>((set, get) => ({
     ws.onclose = () => {
       console.log('WebSocket disconnected');
       if (get().wsConnection === ws) {
-        set({ wsConnection: null, isDebateRunning: false });
+        set({ wsConnection: null, isDebateRunning: false, isPausePending: false });
       }
     };
 
@@ -337,7 +342,10 @@ export const useDebate = create<DebateState>((set, get) => ({
   pauseDebate: () => {
     const { wsConnection } = get();
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      set({ isPausePending: true });
       wsConnection.send(JSON.stringify({ type: 'pause_debate' }));
+    } else {
+      set({ isPausePending: false });
     }
   },
 
@@ -375,6 +383,7 @@ export const useDebate = create<DebateState>((set, get) => ({
       streamingMessage: null,
       wsConnection: null,
       isDebateRunning: false,
+      isPausePending: false,
       consensusSummary: '',
       isGeneratingConsensus: false,
     });

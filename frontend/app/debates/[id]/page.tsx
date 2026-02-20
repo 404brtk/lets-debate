@@ -18,6 +18,7 @@ export default function DebateViewPage() {
     messages,
     streamingMessage,
     isDebateRunning,
+    isPausePending,
     isLoading,
     consensusSummary,
     isGeneratingConsensus,
@@ -205,9 +206,10 @@ export default function DebateViewPage() {
         {isDebateRunning && (
           <button
             onClick={pauseDebate}
+            disabled={isPausePending}
             className="btn btn-warning btn-lg debate-start-btn"
           >
-            ⏸️ Pause Debate
+            {isPausePending ? '⏳ Pause requested…' : '⏸️ Pause Debate'}
           </button>
         )}
 
