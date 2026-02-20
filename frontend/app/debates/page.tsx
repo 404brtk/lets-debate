@@ -5,12 +5,21 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/store/auth';
 import { useDebate, type DebateStatus } from '@/store/debate';
+import { ROLE_COLORS } from '@/components/AgentCard';
 
 const STATUS_STYLES: Record<DebateStatus, { label: string; className: string }> = {
   pending: { label: 'Pending', className: 'status-pending' },
   active: { label: 'Active', className: 'status-active' },
   paused: { label: 'Paused', className: 'status-paused' },
   completed: { label: 'Completed', className: 'status-completed' },
+};
+
+const ROLE_INITIALS: Record<string, string> = {
+  skeptic: 'S',
+  optimist: 'O',
+  expert: 'E',
+  pragmatist: 'P',
+  synthesizer: 'Y',
 };
 
 export default function DebatesPage() {
@@ -100,8 +109,13 @@ export default function DebatesPage() {
                 <div className="debate-card-footer">
                   <div className="debate-card-agents">
                     {debate.agent_configs.map((agent, i) => (
-                      <span key={i} className="agent-avatar-mini" title={agent.name}>
-                        {agent.name.charAt(0).toUpperCase()}
+                      <span
+                        key={i}
+                        className="agent-avatar-mini"
+                        title={`${agent.name} (${agent.role})`}
+                        style={{ backgroundColor: ROLE_COLORS[agent.role] || 'var(--bg-surface)', color: 'white' }}
+                      >
+                        {ROLE_INITIALS[agent.role] || agent.name.charAt(0).toUpperCase()}
                       </span>
                     ))}
                   </div>

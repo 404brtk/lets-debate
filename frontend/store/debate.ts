@@ -140,7 +140,11 @@ export const useDebate = create<DebateState>((set, get) => ({
   fetchMessages: async (debateId) => {
     try {
       const response = await api.get(`/debates/${debateId}/messages`);
-      set({ messages: response.data });
+      const normalizedMessages = (response.data || []).map((msg: Message & { created_at?: string }) => ({
+        ...msg,
+        timestamp: msg.timestamp || msg.created_at,
+      }));
+      set({ messages: normalizedMessages });
     } catch (error) {
       console.error('Failed to fetch messages:', error);
     }

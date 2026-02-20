@@ -132,7 +132,7 @@ export default function DebateViewPage() {
             content={msg.content}
             turnNumber={msg.turn_number}
             timestamp={msg.timestamp}
-            isHuman={!!msg.username}
+            isHuman={!msg.agent_id || !!msg.username}
           />
         ))}
 
