@@ -1,8 +1,12 @@
+import logging
 from typing import Annotated
+
+import httpx
 from fastapi import APIRouter, Query, status as http_status
 from fastapi.responses import Response
 from pydantic import UUID4
 
+from app.config import get_settings
 from app.dependencies import CurrentUser, SessionDep
 from app.services.debate_service import (
     create_debate_with_agents,
@@ -16,7 +20,25 @@ from app.services.debate_service import (
 )
 from app.schemas import DebateCreate, DebateResponse, MessageCreate, MessageResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+@router.get("/ollama/models")
+async def list_ollama_models():
+    """List locally available Ollama models."""
+    settings = get_settings()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m["name"] for m in data.get("models", [])]
+            return {"available": True, "models": models}
+    except Exception:
+        logger.debug("Ollama not reachable at %s", settings.OLLAMA_BASE_URL)
+        return {"available": False, "models": []}
 
 
 @router.post("", response_model=DebateResponse)

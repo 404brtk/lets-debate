@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS: int = 3600
 
+    # ollama
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 

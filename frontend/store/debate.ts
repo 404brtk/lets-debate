@@ -6,7 +6,7 @@ import Cookies from 'js-cookie';
 // ── Types ────────────────────────────────────────────────────────────
 
 export type AgentRole = 'skeptic' | 'optimist' | 'expert' | 'pragmatist' | 'synthesizer';
-export type ModelProvider = 'openai' | 'gemini';
+export type ModelProvider = 'openai' | 'gemini' | 'ollama';
 export type DebateStatus = 'pending' | 'active' | 'paused' | 'completed';
 
 export interface AgentConfig {

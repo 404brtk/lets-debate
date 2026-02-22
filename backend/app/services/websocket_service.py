@@ -246,6 +246,7 @@ async def run_debate_via_websocket(
 
     # Validate that the user has API keys for all required providers
     required_providers = {a.model_provider for a in agents}
+    required_providers.discard("ollama")  # Ollama needs no API key
     key_map = {"openai": api_keys.get("openai"), "gemini": api_keys.get("google")}
     missing = [p for p in required_providers if not key_map.get(p)]
     if missing:

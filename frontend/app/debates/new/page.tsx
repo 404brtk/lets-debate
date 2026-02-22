@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/store/auth';
 import { useDebate, type AgentRole, type ModelProvider } from '@/store/debate';
 import AgentCard, { ROLE_OPTIONS } from '@/components/AgentCard';
+import { api } from '@/lib/api';
 
 interface AgentForm {
   name: string;
@@ -47,12 +48,28 @@ export default function NewDebatePage() {
   const [maxTurns, setMaxTurns] = useState(20);
   const [agents, setAgents] = useState<AgentForm[]>(DEFAULT_AGENTS);
   const [error, setError] = useState('');
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaAvailable, setOllamaAvailable] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.push('/login');
     }
   }, [isAuthenticated, authLoading, router]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    api
+      .get('/debates/ollama/models')
+      .then((res) => {
+        setOllamaAvailable(res.data.available);
+        setOllamaModels(res.data.models || []);
+      })
+      .catch(() => {
+        setOllamaAvailable(false);
+        setOllamaModels([]);
+      });
+  }, [isAuthenticated]);
 
   const handleAgentChange = (index: number, field: string, value: string | number) => {
     setAgents((prev) => {
@@ -102,7 +119,7 @@ export default function NewDebatePage() {
       return;
     }
 
-    // Validate API keys
+    // Validate API keys and provider availability
     const requiredProviders = new Set(agents.map((a) => a.model_provider));
     if (requiredProviders.has('openai') && !user?.has_openai_key) {
       setError('You need to add an OpenAI API key in your profile to use OpenAI models.');
@@ -110,6 +127,10 @@ export default function NewDebatePage() {
     }
     if (requiredProviders.has('gemini') && !user?.has_google_key) {
       setError('You need to add a Google API key in your profile to use Gemini models.');
+      return;
+    }
+    if (requiredProviders.has('ollama') && !ollamaAvailable) {
+      setError('Ollama is not running. Please start Ollama and try again.');
       return;
     }
 
@@ -194,6 +215,8 @@ export default function NewDebatePage() {
                 index={index}
                 {...agent}
                 canRemove={agents.length > 2}
+                ollamaModels={ollamaModels}
+                ollamaAvailable={ollamaAvailable}
                 onChange={(field, value) => handleAgentChange(index, field, value)}
                 onRemove={() => removeAgent(index)}
               />

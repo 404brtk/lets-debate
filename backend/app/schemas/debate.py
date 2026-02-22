@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, UUID4, Field
 
 AgentRole = Literal["skeptic", "optimist", "expert", "pragmatist", "synthesizer"]
-ModelProvider = Literal["openai", "gemini"]
+ModelProvider = Literal["openai", "gemini", "ollama"]
 DebateStatus = Literal["pending", "active", "paused", "completed"]
 
 

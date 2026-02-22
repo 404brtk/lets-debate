@@ -10,6 +10,8 @@ interface AgentCardProps {
   model_name: string;
   temperature: number;
   canRemove: boolean;
+  ollamaModels: string[];
+  ollamaAvailable: boolean;
   onChange: (field: string, value: string | number) => void;
   onRemove: () => void;
 }
@@ -43,6 +45,8 @@ export default function AgentCard({
   model_name,
   temperature,
   canRemove,
+  ollamaModels,
+  ollamaAvailable,
   onChange,
   onRemove,
 }: AgentCardProps) {
@@ -96,29 +100,56 @@ export default function AgentCard({
             onChange={(e) => {
               const provider = e.target.value as ModelProvider;
               onChange('model_provider', provider);
-              const models = MODEL_OPTIONS.find((m) => m.provider === provider)?.models || [];
-              if (models.length > 0) onChange('model_name', models[0]);
+              if (provider === 'ollama') {
+                onChange('model_name', ollamaModels[0] ?? '');
+              } else {
+                const models = MODEL_OPTIONS.find((m) => m.provider === provider)?.models || [];
+                if (models.length > 0) onChange('model_name', models[0]);
+              }
             }}
             className="form-select"
           >
             <option value="openai">OpenAI</option>
             <option value="gemini">Google Gemini</option>
+            <option value="ollama">
+              Ollama (Local){!ollamaAvailable ? ' - not detected' : ''}
+            </option>
           </select>
         </div>
 
         <div className="form-group">
           <label className="form-label">Model</label>
-          <select
-            value={model_name}
-            onChange={(e) => onChange('model_name', e.target.value)}
-            className="form-select"
-          >
-            {availableModels.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          {model_provider === 'ollama' ? (
+            ollamaModels.length > 0 ? (
+              <select
+                value={model_name}
+                onChange={(e) => onChange('model_name', e.target.value)}
+                className="form-select"
+              >
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select disabled className="form-select">
+                <option>Ollama not detected</option>
+              </select>
+            )
+          ) : (
+            <select
+              value={model_name}
+              onChange={(e) => onChange('model_name', e.target.value)}
+              className="form-select"
+            >
+              {availableModels.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="form-group">

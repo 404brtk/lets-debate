@@ -89,7 +89,7 @@ class DebateGraphState:
 def create_chat_model(
     provider: str,
     model_name: str,
-    api_key: str,
+    api_key: str | None,
     temperature: float = 0.7,
 ):
     """Create a LangChain chat model for the given provider."""
@@ -105,6 +105,16 @@ def create_chat_model(
             model=model_name,
             model_provider="google_genai",
             api_key=api_key,
+            temperature=temperature,
+        )
+    elif provider == "ollama":
+        from app.config import get_settings
+
+        settings = get_settings()
+        return init_chat_model(
+            model=model_name,
+            model_provider="ollama",
+            base_url=settings.OLLAMA_BASE_URL,
             temperature=temperature,
         )
     else:
@@ -123,8 +133,10 @@ def build_system_prompt(agent: AgentSpec, topic: str, description: str = "") -> 
     return role_prompt + context
 
 
-def _get_api_key_for_provider(provider: str, api_keys: dict[str, str | None]) -> str:
+def _get_api_key_for_provider(provider: str, api_keys: dict[str, str | None]) -> str | None:
     """Resolve the API key for a given provider."""
+    if provider == "ollama":
+        return None
     key_map = {"openai": "openai", "gemini": "google"}
     key_name = key_map.get(provider)
     if not key_name:
