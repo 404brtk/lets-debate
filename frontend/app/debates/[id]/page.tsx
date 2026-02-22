@@ -42,6 +42,8 @@ export default function DebateViewPage() {
 
   useEffect(() => {
     if (isAuthenticated && debateId) {
+      // Reset running state to avoid stale thinking indicator from previous debates
+      useDebate.setState({ isDebateRunning: false, streamingMessage: null });
       fetchDebate(debateId);
       fetchMessages(debateId);
       connectWebSocket(debateId);
